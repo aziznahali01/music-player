@@ -24,6 +24,8 @@ A lightweight local MP3 player built with Python and customtkinter.
 
 &nbsp; - `Ctrl + ↑ / ↓`: Volume up/down
 
+&nbsp; - `Ctrl + F`: Open Window
+
 
 
 \## Requirements
