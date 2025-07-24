@@ -75,10 +75,23 @@ def load_settings():
     with open(SETTINGS_PATH, "r") as f:
         return json.load(f)
 
-def save_settings(data):
-    os.makedirs(APPDATA_PATH, exist_ok=True)  # Just in case
+def save_settings(new_data):
+    os.makedirs(APPDATA_PATH, exist_ok=True)
+
+    # Step 1: Load existing settings (if file exists)
+    if os.path.exists(SETTINGS_PATH):
+        with open(SETTINGS_PATH, "r") as f:
+            existing_data = json.load(f)
+    else:
+        existing_data = {}
+
+    # Step 2: Update only the theme-related keys
+    existing_data.update(new_data)
+
+    # Step 3: Save all settings back
     with open(SETTINGS_PATH, "w") as f:
-        json.dump(data, f, indent=4)
+        json.dump(existing_data, f, indent=4)
+
 
 
 
