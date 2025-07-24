@@ -25,10 +25,20 @@ from tkinter import messagebox
 #########################################################################
 
 
+# Define a safe path for loading external files, whether running as .py or .exe
+def resource_path(relative_path):
+    """ Get the absolute path to a resource, works for dev and PyInstaller """
+    try:
+        base_path = sys._MEIPASS
+    except AttributeError:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+
 pygame.mixer.init()
 
 ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("themes/lavender.json")
+ctk.set_default_color_theme(resource_path("themes/lavender.json"))
 
 #App settings
 app = ctk.CTk()
@@ -115,7 +125,7 @@ cover_label.grid(row=1, column=0, rowspan=2, padx=(10, 5), pady=(10, 2), sticky=
 
 settings = load_settings()
 theme_color = settings.get("theme_color", "lavender")
-ctk.set_default_color_theme(f"themes/{theme_color}.json")
+ctk.set_default_color_theme(resource_path(f"themes/{theme_color}.json"))
 
 
 # Get the directory of the current script
@@ -125,7 +135,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 theme_path = os.path.join(current_dir, "themes", f"{theme_color}.json")
 
 # Apply the theme
-ctk.set_default_color_theme(theme_path)
+ctk.set_default_color_theme(resource_path(theme_path))
 
 
 
@@ -200,7 +210,7 @@ def reset_preferences():
         save_settings(default_settings)
 
 def change_theme_color(color):
-    ctk.set_default_color_theme(f"themes/{color}.json")  # Change theme immediately
+    ctk.set_default_color_theme(resource_path(f"themes/{color}.json"))  # Change theme immediately
     save_settings({"theme_color": color})
 
 def toggle_dark_mode(value):
