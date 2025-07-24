@@ -1,8 +1,8 @@
-\# Simple Music Player 🎵
+\# Music Player 🎵
 
 
 
-A lightweight local MP3 player built with Python and customtkinter.
+A lightweight (and very simple) local MP3 player built with Python and customtkinter.
 
 
 
@@ -16,13 +16,26 @@ A lightweight local MP3 player built with Python and customtkinter.
 
 \- Cover art support (with default placeholder)
 
+\- Playlist (Creation and Deletion) support
+
+\- Custom Themes
+
+(Credits to themes provided by a13xe's CTkThemesPack)
+
+
 \- Global hotkeys:
 
-&nbsp; - `Ctrl + Space`: Play/Pause
+&nbsp; - `Ctrl + Shift + Space`: Play/Pause
 
-&nbsp; - `Ctrl + →`: Skip to next song
+&nbsp; - `Ctrl + Shift + →`: Skip to next song
 
-&nbsp; - `Ctrl + ↑ / ↓`: Volume up/down
+&nbsp; - `Ctrl + Shift + ←`: UnSkip to previous song
+
+&nbsp; - `Ctrl + Shift + ↑ / ↓`: Volume up/down
+
+&nbsp; - `Ctrl + Shift + M`: Mute song
+
+&nbsp; - `Ctrl + Shift + L`: Load an Mp3
 
 
 

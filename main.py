@@ -7,48 +7,377 @@ from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, APIC
 from PIL import Image, ImageTk
 import io
+import json
 import time
 import keyboard
 from PIL import ImageOps
 from PIL import Image, ImageTk, ImageDraw, ImageOps
 import sys
+import tkinter as tk
+from tkinter import ttk
+from tkinter import messagebox
+
+#Imports
+#########################################################################
+
+#########################################################################
+
+#########################################################################
 
 
 pygame.mixer.init()
 
 ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("blue")
+ctk.set_default_color_theme("themes/lavender.json")
 
+#App settings
 app = ctk.CTk()
-app.geometry("470x220")  # Increased height to fit sliders
+app.geometry("490x220")
 app.title("Vixl0's Way Too Simple Music Player")
-app.resizable(False, False)
+app.minsize(490, 220)    # minimum width 470, minimum height 220
+app.resizable(True, False)  # Allow horizontal resizing, disallow vertical
 
-# Configure columns and rows
+icon_path = os.path.join(os.path.dirname(__file__), "icon.ico")
+app.iconbitmap(icon_path)
+
+
+# Define folder structure
+APP_NAME = "Vixl0"
+APP_FOLDER = "MusicPlayer"
+
+APPDATA_PATH = os.path.join(os.getenv("LOCALAPPDATA"), APP_NAME, APP_FOLDER)
+SETTINGS_PATH = os.path.join(APPDATA_PATH, "settings.json")
+
+# Ensure folder exists
+os.makedirs(APPDATA_PATH, exist_ok=True)
+
+
+# default settings
+default_settings = {
+    "theme_color": "lavender",
+    "theme": "dark",
+    "Playlists": []
+}
+
+def load_settings():
+    if not os.path.exists(SETTINGS_PATH):
+        return {}
+    with open(SETTINGS_PATH, "r") as f:
+        return json.load(f)
+
+def save_settings(data):
+    os.makedirs(APPDATA_PATH, exist_ok=True)  # Just in case
+    with open(SETTINGS_PATH, "w") as f:
+        json.dump(data, f, indent=4)
+
+
+
+load_settings()
+
+
+# Space things out
 app.grid_columnconfigure(0, weight=0)  # cover art column
 app.grid_columnconfigure(1, weight=1)  # title/artist column
 app.grid_columnconfigure(2, weight=0)  # buttons columns
 app.grid_columnconfigure(3, weight=0)
 app.grid_rowconfigure(3, weight=1)  # For sliders
 
-# Globals
-current_file = None
-playing = False
-play_button_text = "Play"
-song_length = 0
-current_pos = 0  # position in seconds where playback started or was last seeked
+# Global variables
+current_file = None #File currently playing
+playing = False #Is song playing rn
+play_button_text = "Play" #useless
+song_length = 0 #length of the song
+current_pos = 0  # number of seconds after the song started
 last_update_time = 0  # time when playback started or was last seeked
-is_muted = False
+is_muted = False #pretty obvious
 previous_volume = 0.5  # default volume
-current_folder = None
-folder_playlist = []
-current_folder_index = 0
-pause_start_time = 0
-total_paused_time = 0
+current_folder = None #folder where the last mp3 was played
+folder_playlist = [] #all mp3s in the folder
+current_folder_index = 0 #what number song is the mp3 in the "playlist"
+pause_start_time = 0 #pausing settings
+total_paused_time = 0 #pausing settings
+dark_mode = "on"
+THEME_OPTIONS = ["breeze", "coffee", "orange", "midnight", "violet", "autumn", "metal", "cherry", "red", "patina", "yellow", "marsh", "rose", "pink", "lavender", "carrot", "rime", "sky"]  # Theme color options
 
 
+# Playlist globals
+current_playlist_songs = []
+current_playlist_index = 0
+
+manual_song_list = []
+manual_song_index = 0
+in_playlist_mode = False
+
+
+#The Cover Label settings
 cover_label = ctk.CTkLabel(app, text="")
 cover_label.grid(row=1, column=0, rowspan=2, padx=(10, 5), pady=(10, 2), sticky="nw")
+
+settings = load_settings()
+theme_color = settings.get("theme_color", "lavender")
+ctk.set_default_color_theme(f"themes/{theme_color}.json")
+
+
+# Get the directory of the current script
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Build the full path to the theme file
+theme_path = os.path.join(current_dir, "themes", f"{theme_color}.json")
+
+# Apply the theme
+ctk.set_default_color_theme(theme_path)
+
+
+
+#########################################################################
+
+#########################################################################
+
+
+def open_settings_window():
+    settings = load_settings()
+
+    global settings_window
+    settings_window = ctk.CTkToplevel(app)
+    settings_window.title("Settings")
+    settings_window.geometry("300x270")
+    settings_window.resizable(False, False)
+
+    settings_window.deiconify()
+    settings_window.lift()
+    settings_window.focus_force()
+
+    # --- Theme Color ---
+    theme_label = ctk.CTkLabel(settings_window, text="Choose Theme Color:")
+    theme_label.pack(pady=(8, 0))
+
+    current_theme = settings.get("theme_color", "lavender")
+    theme_var = ctk.StringVar(value=current_theme)
+
+    theme_option_menu = ctk.CTkOptionMenu(
+        settings_window,
+        values=THEME_OPTIONS,
+        variable=theme_var,
+        command=change_theme_color  # Live update
+    )
+    theme_option_menu.pack(pady=10)
+
+    # --- Dark Mode ---
+    dark_label = ctk.CTkLabel(settings_window, text="Enable Dark Mode:")
+    dark_label.pack(pady=(18, 0))
+
+    current_dark = settings.get("theme_mode", "light")
+    dark_mode_var = ctk.StringVar(value="on" if current_dark == "dark" else "off")
+
+    dark_mode_checkbox = ctk.CTkCheckBox(
+        master=settings_window,
+        text="",
+        variable=dark_mode_var,
+        onvalue="on",
+        offvalue="off",
+        command=lambda: toggle_dark_mode(dark_mode_var.get())  # Live update
+    )
+    dark_mode_checkbox.pack(pady=10)
+
+    # --- Reset Preferences ---
+
+    reset_preferences_button = ctk.CTkButton(settings_window, text="Reset Preferences", command=lambda: reset_preferences())
+    reset_preferences_button.pack(pady=(22, 0))
+    
+
+
+    # --- Save Button (optional, for permanent save confirmation) ---
+    save_button = ctk.CTkButton(settings_window, text="Save Settings", command=lambda: save_settings({
+        "theme_color": theme_var.get(),
+        "theme_mode": "dark" if dark_mode_var.get() == "on" else "light"
+    }))
+    save_button.pack(pady=10)
+
+
+def reset_preferences():
+    confirm = messagebox.askyesno("Reset Preferences", "This will reset all your saved options including Playlists and Themes to the default values")
+    if confirm:
+        save_settings(default_settings)
+
+def change_theme_color(color):
+    ctk.set_default_color_theme(f"themes/{color}.json")  # Change theme immediately
+    save_settings({"theme_color": color})
+
+def toggle_dark_mode(value):
+    mode = "dark" if value == "on" else "light"
+    ctk.set_appearance_mode(mode)  # Change mode immediately
+    save_settings({"theme_mode": mode})
+
+
+
+
+def open_playlist_window():
+    settings = load_settings()  # Load current settings including playlists
+
+    global playlist_window
+    
+
+    playlist_window = ctk.CTkToplevel(app)
+    playlist_window.title("Playlists")
+    playlist_window.geometry("220x400")
+    playlist_window.resizable(True, False)
+    playlist_window.minsize(400, 250)
+
+    playlist_window.deiconify()        # Restore window if minimized
+    playlist_window.lift()             # Bring window to the front
+    playlist_window.focus_force()
+
+
+    list_frame = ctk.CTkFrame(playlist_window)
+    list_frame.pack(fill="both", expand=True, padx=10, pady=(10, 0))
+    
+    canvas = ctk.CTkCanvas(list_frame)
+    scrollbar = ctk.CTkScrollbar(list_frame, orientation="vertical", command=canvas.yview)
+    scrollable_frame = ctk.CTkFrame(canvas)
+    
+    scrollable_frame.bind(
+        "<Configure>",
+        lambda e: canvas.configure(
+            scrollregion=canvas.bbox("all")
+        )
+    )
+    
+    canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+    
+    canvas.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+
+    def refresh_playlists():
+        playlists = load_settings().get("Playlists", [])
+
+        for widget in scrollable_frame.winfo_children():
+            widget.destroy()
+
+        for col_index, playlist in enumerate(playlists):
+            playlist_name = playlist.get("name", f"Playlist {col_index+1}")
+
+            def on_left_click(p=playlist):
+                load_playlist(p)
+
+            def on_right_click(event, p=playlist):
+                confirm = messagebox.askyesno("Delete Playlist", f"Delete playlist '{p['name']}'?")
+                if confirm:
+                    settings = load_settings()
+                    settings["Playlists"] = [pl for pl in settings.get("Playlists", []) if pl["name"] != p["name"]]
+                    save_settings(settings)
+                    refresh_playlists()
+
+            # Create button for the playlist
+            playlist_btn = ctk.CTkButton(
+                scrollable_frame,
+                text=playlist_name,
+                font=("Arial", 14, "bold"),
+                command=on_left_click
+            )
+            playlist_btn.grid(row=0, column=col_index, padx=20, pady=(10, 0), sticky="n")
+
+            # Bind right click to delete
+            playlist_btn.bind("<Button-3>", on_right_click)
+
+            # Optionally list songs below the button
+            for row_index, song_path in enumerate(playlist.get("songs", [])):
+                try:
+                    audio = EasyID3(song_path)
+                    song_name = audio.get("title", ["Unknown Title"])[0]
+                except:
+                    song_name = os.path.basename(song_path)
+
+                song_label = ctk.CTkLabel(
+                    scrollable_frame,
+                    text=f"{row_index+1}. {song_name}",
+                    font=("Arial", 12)
+                )
+                song_label.grid(row=row_index + 1, column=col_index, padx=10, sticky="nw")
+
+
+
+    refresh_playlists()
+
+    entry_frame = ctk.CTkFrame(playlist_window)
+    entry_frame.pack(fill="x", padx=10, pady=10)
+
+    new_playlist_entry = ctk.CTkEntry(entry_frame, placeholder_text="New playlist name...")
+    new_playlist_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
+    def add_playlist():
+        name = new_playlist_entry.get().strip()
+        if not name:
+            messagebox.showwarning("Input Error", "Please enter a playlist name.")
+            return
+
+        existing_names = [p["name"] for p in settings.get("Playlists", [])]
+        if name in existing_names:
+            messagebox.showwarning("Duplicate Playlist", f"A playlist named '{name}' already exists.")
+            return
+
+        files = filedialog.askopenfilenames(
+            title=f"Select songs for '{name}'",
+            filetypes=[("MP3 files", "*.mp3")]
+        )
+
+        if not files:
+            return
+
+        playlist = {
+            "name": name,
+            "songs": list(files)
+        }
+
+        if "Playlists" not in settings:
+            settings["Playlists"] = []
+        settings["Playlists"].append(playlist)
+
+        save_settings(settings)
+        refresh_playlists()
+        new_playlist_entry.delete(0, 'end')
+
+    add_button = ctk.CTkButton(entry_frame, text="Add", command=add_playlist)
+    add_button.pack(side="right")
+
+        
+    
+    refresh_playlists()
+
+
+def load_playlist(playlist):
+    global current_file, playing, current_playlist_songs, current_playlist_index
+    global current_pos, last_update_time
+    global current_folder, folder_playlist, current_folder_index
+
+    if not playlist.get("songs"):
+        messagebox.showwarning("Empty Playlist", "This playlist has no songs.")
+        return
+
+    current_playlist_songs = playlist["songs"]
+    current_playlist_index = 0
+    current_file = current_playlist_songs[0]
+
+    pygame.mixer.music.load(current_file)
+    pygame.mixer.music.play()
+    playing = True
+
+    current_pos = 0
+    last_update_time = time.time()
+
+    update_metadata_ui(current_file)
+
+    # Clear folder playlist mode (optional)
+    current_folder = None
+    folder_playlist = []
+    current_folder_index = 0
+
+    play_button.configure(text="Pause")
+    update_playback_slider()
+
+    print(f"Loaded playlist: {playlist.get('name')}")
+
+
 
 
 def add_rounded_corners(im, radius):
@@ -63,10 +392,11 @@ def add_rounded_corners(im, radius):
     
     return im_rounded
 
-
+#Update the metadata of the song
 def update_metadata_ui(file_path):
     global song_length
     try:
+        #Update the title, artist, and album
         audio = EasyID3(file_path)
         title = audio.get("title", ["Unknown Title"])[0]
         artist = audio.get("artist", ["Unknown Artist"])[0]
@@ -86,10 +416,10 @@ def update_metadata_ui(file_path):
         for tag in audio.tags.values():
             if isinstance(tag, APIC):
                 image_data = tag.data
-                # Example usage in your cover art loading:
+                # Example usage in cover art loading:
                 image = Image.open(io.BytesIO(image_data)).resize((120, 120))
 
-                # Add bezel: expand border with black color
+                # Add bezel
                 image_with_border = ImageOps.expand(image, fill='blue')
 
                 # Add rounded corners with radius 15
@@ -105,7 +435,7 @@ def update_metadata_ui(file_path):
         print("No album art found:", e)
         cover_label.configure(image=None, text="🎵")
 
-    # Update duration label and playback slider max value
+    # Update the song length and reset to 0 seconds
     try:
         audio_info = MP3(file_path)
         song_length = audio_info.info.length
@@ -118,9 +448,15 @@ def update_metadata_ui(file_path):
         playback_slider.configure(to=0)
         current_song_pos.configure(text="00:00")
 
+#Load an mp3 to play
 def load_file():
     global current_file, playing, current_folder, folder_playlist, current_folder_index
-    global song_length, current_pos, last_update_time
+    global current_pos, last_update_time
+    global current_playlist_songs, current_playlist_index
+
+    # Clear playlist mode on manual load
+    current_playlist_songs = []
+    current_playlist_index = 0
 
     file_path = filedialog.askopenfilename(
         filetypes=[("MP3 files", "*.mp3")],
@@ -132,12 +468,10 @@ def load_file():
         pygame.mixer.music.play()
         playing = True
 
-        # Reset playback info
         current_pos = 0
         last_update_time = time.time()
 
         update_metadata_ui(current_file)
-
 
         # Setup playlist for folder
         current_folder = os.path.dirname(current_file)
@@ -149,78 +483,80 @@ def load_file():
 
         play_button.configure(text="Pause")
 
-        update_playback_slider()  # Start slider updates
-        
+        update_playback_slider()
 
         print("Playing:", current_file)
     else:
         print("No file selected")
 
+#obvious
 def get_playback_position():
     if not playing:
         return current_pos  # Don't advance if paused
     return current_pos + (time.time() - last_update_time)
 
 
-
-
+#Skip the song
 def skip_song():
-    global current_folder_index, folder_playlist, current_folder, playing
-    global song_length, current_pos, last_update_time
+    global current_playlist_index, playing, current_file
+    global current_folder_index
+    global current_pos, last_update_time  # <- Add this
 
-    if not folder_playlist or current_folder is None:
-        print("No folder playlist available")
-        return
+    if current_playlist_songs:
+        current_playlist_index = (current_playlist_index + 1) % len(current_playlist_songs)
+        next_song_path = current_playlist_songs[current_playlist_index]
+    else:
+        current_folder_index = (current_folder_index + 1) % len(folder_playlist)
+        next_song_path = os.path.join(current_folder, folder_playlist[current_folder_index])
 
-    current_folder_index = (current_folder_index + 1) % len(folder_playlist)
-    next_song_path = os.path.join(current_folder, folder_playlist[current_folder_index])
     pygame.mixer.music.load(next_song_path)
     pygame.mixer.music.play()
     playing = True
+    current_file = next_song_path
 
-    # Reset playback info
-    current_pos = 0
+    current_pos = 0  # Reset progress tracking
     last_update_time = time.time()
 
-    update_metadata_ui(next_song_path)
-
+    update_metadata_ui(current_file)
     play_button.configure(text="Pause")
-
     update_playback_slider()
 
-    print("Skipped to:", next_song_path)
 
+
+#UnSkip the song
 def unskip_song():
-    global current_folder_index, folder_playlist, current_folder, playing
-    global song_length, current_pos, last_update_time
+    global current_folder_index
+    global current_playlist_index, playing, current_file
+    global current_pos, last_update_time  # <- Add this
 
-    if not folder_playlist or current_folder is None:
-        print("No folder playlist available")
-        return
+    if current_playlist_songs:
+        current_playlist_index = (current_playlist_index - 1) % len(current_playlist_songs)
+        prev_song_path = current_playlist_songs[current_playlist_index]
+    else:
+        current_folder_index = (current_folder_index - 1) % len(folder_playlist)
+        prev_song_path = os.path.join(current_folder, folder_playlist[current_folder_index])
 
-    current_folder_index = (current_folder_index - 1) % len(folder_playlist)
-    previous_song_path = os.path.join(current_folder, folder_playlist[current_folder_index])
-    pygame.mixer.music.load(previous_song_path)
+    pygame.mixer.music.load(prev_song_path)
     pygame.mixer.music.play()
     playing = True
+    current_file = prev_song_path
 
     # Reset playback info
     current_pos = 0
     last_update_time = time.time()
 
-    update_metadata_ui(previous_song_path)
-
+    # Always run these
+    update_metadata_ui(current_file)
     play_button.configure(text="Pause")
-
     update_playback_slider()
 
-    print("UnSkipped to:", previous_song_path)
 
 pause_start_time = 0
 total_paused_time = 0
 
+#Pause and play song
 def play_music():
-    global playing, pause_start_time, total_paused_time, last_update_time, current_pos
+    global playing, last_update_time, current_pos
     if playing:
         pygame.mixer.music.pause()
         playing = False
@@ -233,24 +569,27 @@ def play_music():
         play_button.configure(text="Pause")
 
 
-
+#Obvious
 def change_volume(value):
     volume = float(value) / 100
     pygame.mixer.music.set_volume(volume)
     volume_percent.configure(text=f"{int(value)}%")
 
+#Obvious
 def volume_up():
     current = volume_slider.get()
     new = min(100, current + 5)  # increase by 5%, max 100%
     volume_slider.set(new)
     change_volume(new)
 
+#Obvious
 def volume_down():
     current = volume_slider.get()
     new = max(0, current - 5)  # decrease by 5%, min 0%
     volume_slider.set(new)
     change_volume(new)
 
+#Obvious
 def toggle_mute():
     global is_muted, previous_volume
     if is_muted:
@@ -267,8 +606,9 @@ def toggle_mute():
         mute_button.configure(text="Unmute")
         is_muted = True
 
+#i forgot
 def seek_song(value):
-    global playing, current_pos, last_update_time
+    global current_pos, last_update_time
     if current_file:
         seek_time = float(value)
         pygame.mixer.music.play(start=seek_time)
@@ -278,7 +618,7 @@ def seek_song(value):
             pygame.mixer.music.pause()
         playback_slider.set(current_pos)
 
-
+#obvious
 def update_playback_slider():
     if current_file and playing:
         pos = get_playback_position()
@@ -288,16 +628,22 @@ def update_playback_slider():
         current_song_pos.configure(text=format_time(pos))
     app.after(500, update_playback_slider)
 
-
+#obvious
 def format_time(seconds):
     mins = int(seconds // 60)
     secs = int(seconds % 60)
     return f"{mins:02}:{secs:02}"
 
-def focus_app_window():
-    app.deiconify()        # Restore window if minimized
-    app.lift()             # Bring window to the front
-    app.focus_force()      # Focus the window
+def check_for_song_end():
+    if current_file and not pygame.mixer.music.get_busy() and playing:
+        skip_song()
+    app.after(1000, check_for_song_end)  # Check every second
+
+
+
+#########################################################################
+
+#########################################################################
 
 
 # Buttons
@@ -318,6 +664,14 @@ load_button = ctk.CTkButton(
     command=load_file
 )
 
+playlist_button = ctk.CTkButton(
+    app,
+    text="Playlists",
+    width=70,
+    height=30,
+    command=open_playlist_window
+)
+
 skip_button = ctk.CTkButton(
     app,
     text="Skip",
@@ -336,7 +690,25 @@ unskip_button = ctk.CTkButton(
     command=unskip_song
 )
 
-# Labels
+mute_button = ctk.CTkButton(
+    app,
+    text="Mute",
+    width=32,
+    height=18,
+    command=toggle_mute
+)
+
+settings_button = ctk.CTkButton(
+    app,
+    text="⚙️",
+    width=18,
+    height=30,
+    command=open_settings_window
+)
+
+
+
+# Text
 song_title = ctk.CTkLabel(
     app,
     text="--No song loaded--",
@@ -373,7 +745,8 @@ song_duration = ctk.CTkLabel(
     font=("Arial", 18),
 )
 
-# Volume slider
+
+# Sliders
 volume_slider = ctk.CTkSlider(
     app,
     from_=0,
@@ -384,15 +757,6 @@ volume_slider = ctk.CTkSlider(
 volume_slider.set(50)  # default volume 50%
 pygame.mixer.music.set_volume(0.5)
 
-mute_button = ctk.CTkButton(
-    app,
-    text="Mute",
-    width=32,
-    height=18,
-    command=toggle_mute
-)
-
-# Playback slider
 playback_slider = ctk.CTkSlider(
     app,
     from_=0,
@@ -400,31 +764,36 @@ playback_slider = ctk.CTkSlider(
     number_of_steps=100,
     command=seek_song
 )
+#########################################################################
 
-# Get the directory where the script is running (even when compiled)
+#########################################################################
+
+# Find the placeholder cover art image and set it when app is opened
 base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
 placeholder_path = os.path.join(base_path, "cover_art_placeholder.png")
 
-# Load the placeholder image
 placeholder_image = Image.open(placeholder_path)
 placeholder_image = placeholder_image.resize((120, 120))  # Adjust size as needed
 cover_art_image = ImageTk.PhotoImage(placeholder_image)
 
-# Apply it to your label or image widget
 cover_label.configure(image=cover_art_image)
 cover_label.image = cover_art_image  # Prevent garbage collection
 
-# Layout
-play_button.grid(row=0, column=2, padx=5, pady=10, sticky="nw")
-load_button.grid(row=0, column=3, padx=10, pady=10, sticky="nw")
+#########################################################################
+
+# GUI Layout
+play_button.grid(row=0, column=1, padx=5, pady=(10,0), sticky="n")
+load_button.grid(row=0, column=3, padx=10, pady=(10,0), sticky="nw")
 skip_button.grid(row=0, column=1, padx=2, pady=(10,0), sticky="nw")
 unskip_button.grid(row=0, column=0, padx=2, pady=(10,0), sticky="ne")
+playlist_button.grid(row=0, column=2, padx=2, pady=(10,0), sticky="nw")
+settings_button.grid(row=0, column=0, padx=2, pady=(10,0), sticky="nw")
 
-song_title.grid(row=1, column=1, columnspan=2, sticky="nw", pady=(5, 0), padx=(0, 10))
-song_artist.grid(row=2, column=1, columnspan=2, sticky="nw", pady=(0, 0), padx=(0, 10))
-song_album.grid(row=3, column=1, columnspan=2, sticky="nw", pady=(0, 0), padx=(0, 10))
+song_title.grid(row=1, column=1, columnspan=3, sticky="nw", pady=(15, 0), padx=(0, 10))
+song_artist.grid(row=2, column=1, columnspan=3, sticky="nw", pady=(0, 0), padx=(0, 10))
+song_album.grid(row=3, column=1, columnspan=3, sticky="nw", pady=(0, 0), padx=(0, 10))
 
-cover_label.grid(row=1, column=0, rowspan=3, padx=(10, 5), pady=(2, 2), sticky="nw")
+cover_label.grid(row=1, column=0, rowspan=3, padx=(10, 5), pady=(15, 2), sticky="nw")
 
 volume_slider.grid(row=4, column=1, columnspan=2, sticky="ew", padx=(0, 10), pady=3)
 playback_slider.grid(row=5, column=1, columnspan=2, sticky="ew", padx=(0, 10), pady=(0, 5))
@@ -434,18 +803,25 @@ song_duration.grid(row=5, column=3, sticky="nw", pady=(0, 0), padx=(0, 5))
 volume_percent.grid(row=4, column=3, sticky="w", pady=(0, 0), padx=(0, 5))
 mute_button.grid(row=4, column=0, sticky="e", pady=(0, 0), padx=(10, 5))
 
-# Register global hotkeys Ctrl+Space for play/pause and Ctrl+Right for skip
-keyboard.add_hotkey('ctrl+space', play_music)
-keyboard.add_hotkey('ctrl+right', skip_song)
-keyboard.add_hotkey('ctrl+left', unskip_song)
+#########################################################################
 
-# Register global hotkeys for volume control
-keyboard.add_hotkey('ctrl+up', volume_up)
-keyboard.add_hotkey('ctrl+down', volume_down)
+#########################################################################
 
-# Focus the app window
-keyboard.add_hotkey('ctrl+f', focus_app_window)
+#Hotkeys
 
+# Load, Play/Pause, Skip, and UnSkip songs
+keyboard.add_hotkey('ctrl+shift+space', play_music)
+keyboard.add_hotkey('ctrl+shift+right', skip_song)
+keyboard.add_hotkey('ctrl+shift+left', unskip_song)
+keyboard.add_hotkey('ctrl+shift+l', load_file)
 
+# Control Volume
+keyboard.add_hotkey('ctrl+shift+up', volume_up)
+keyboard.add_hotkey('ctrl+shift+down', volume_down)
+keyboard.add_hotkey('ctrl+shift+m', toggle_mute)
+
+#########################################################################
+
+check_for_song_end()
 
 app.mainloop()
