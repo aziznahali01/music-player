@@ -37,8 +37,6 @@ A lightweight (and very simple) local MP3 player built with Python and customtki
 
 &nbsp; - `Ctrl + Shift + L`: Load an Mp3
 
-&nbsp; - `Ctrl + F`: Open Window
-
 
 
 \## Requirements
