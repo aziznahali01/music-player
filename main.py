@@ -16,6 +16,8 @@ import sys
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
+import zipfile
+import shutil
 
 #Imports
 #########################################################################
@@ -156,6 +158,119 @@ ctk.set_default_color_theme(resource_path(theme_path))
 
 #########################################################################
 
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+IMPORTED_PLAYLISTS_DIR = os.path.join(APP_DIR, "Imported Playlists")
+SETTINGS_PATH = os.path.join(APPDATA_PATH, "settings.json")
+
+def export_playlist(playlist):
+    from pathlib import Path
+
+    confirm = messagebox.askyesno(f"Export Playlist: {playlist}", "This will take a little while")
+    if confirm:
+        playlist_name = playlist["name"]
+        songs = playlist["songs"]
+
+        # Path to Downloads folder
+        downloads_path = os.path.join(Path.home(), "Downloads")
+        export_folder = os.path.join(downloads_path, f"{playlist_name}_Export")
+        os.makedirs(export_folder, exist_ok=True)
+
+        # Copy all songs into the export folder
+        for song_path in songs:
+            try:
+                shutil.copy(song_path, export_folder)
+            except FileNotFoundError:
+                print(f"Song not found and skipped: {song_path}")
+
+        # Write playlist metadata file
+        metadata = {
+            "name": playlist_name,
+            "songs": [os.path.basename(path) for path in songs]  # Only filenames
+        }
+        with open(os.path.join(export_folder, "playlist.json"), "w") as f:
+            json.dump(metadata, f, indent=4)
+
+        # Zip the folder
+        zip_path = os.path.join(downloads_path, f"{playlist_name}.zip")
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for root, _, files in os.walk(export_folder):
+                for file in files:
+                    abs_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(abs_path, export_folder)
+                    zipf.write(abs_path, arcname=rel_path)
+
+        # Clean up the folder after zipping
+        shutil.rmtree(export_folder)
+
+        print(f"Playlist exported to: {zip_path}")
+        messagebox.showinfo("Export Complete", f"Exported playlist: {playlist['name']}")
+
+        
+
+
+def import_playlist():
+    zip_path = filedialog.askopenfilename(filetypes=[("Playlist Zip Files", "*.zip")])
+    if not zip_path:
+        return
+
+    # Create folder for imported playlists if it doesn't exist
+    os.makedirs(IMPORTED_PLAYLISTS_DIR, exist_ok=True)
+
+    with zipfile.ZipFile(zip_path, 'r') as zf:
+        # Find the playlist.json file inside the zip
+        playlist_json_name = next((name for name in zf.namelist() if name.endswith("playlist.json")), None)
+        if not playlist_json_name:
+            print("Invalid playlist zip (no playlist.json found).")
+            return
+        
+        # Load the playlist metadata
+        playlist_data = json.loads(zf.read(playlist_json_name).decode('utf-8'))
+        playlist_name = playlist_data.get("name", "Imported Playlist")
+
+        # Create folder for this specific playlist
+        target_folder = os.path.join(IMPORTED_PLAYLISTS_DIR, playlist_name)
+        os.makedirs(target_folder, exist_ok=True)
+
+        # Extract everything into that folder
+        zf.extractall(target_folder)
+
+        # Load MP3 file paths
+        song_paths = [
+            os.path.join(target_folder, f)
+            for f in os.listdir(target_folder)
+            if f.lower().endswith(".mp3")
+        ]
+
+        add_imported_playlist_to_settings(playlist_name, song_paths)
+
+
+
+def add_imported_playlist_to_settings(playlist_name, song_paths):
+    # Check if settings dictionary exists
+    if "Playlists" not in settings:
+        settings["Playlists"] = []
+
+    # Prevent duplicates
+    existing_names = [p["name"] for p in settings["Playlists"]]
+    if playlist_name in existing_names:
+        print(f"Playlist '{playlist_name}' already exists in settings.")
+        return
+
+    # Create playlist entry
+    playlist = {
+        "name": playlist_name,
+        "songs": song_paths
+    }
+
+    settings["Playlists"].append(playlist)
+    save_settings(settings)
+    print(f"Added imported playlist '{playlist_name}' to settings.")
+    messagebox.showinfo("Import Complete", "You can now delete the zip folder from your downloads")
+
+
+
+
+
 
 def open_settings_window():
     settings = load_settings()
@@ -246,13 +361,13 @@ def open_playlist_window():
     playlist_window.resizable(True, False)
     playlist_window.minsize(400, 250)
 
-    playlist_window.deiconify()        # Restore window if minimized
-    playlist_window.lift()             # Bring window to the front
+    playlist_window.deiconify()  
+    playlist_window.lift()  
     playlist_window.focus_force()
 
 
     list_frame = ctk.CTkFrame(playlist_window)
-    list_frame.pack(fill="both", expand=True, padx=10, pady=(10, 0))
+    list_frame.pack(fill="both", expand=True, padx=10, pady=(10, 5))
     
     canvas = ctk.CTkCanvas(list_frame)
     scrollbar = ctk.CTkScrollbar(list_frame, orientation="vertical", command=canvas.yview)
@@ -284,18 +399,27 @@ def open_playlist_window():
                 load_playlist(p)
 
             def on_right_click(event, p=playlist):
-                confirm = messagebox.askyesno("Delete Playlist", f"Delete playlist '{p['name']}'?")
-                if confirm:
-                    settings = load_settings()
-                    settings["Playlists"] = [pl for pl in settings.get("Playlists", []) if pl["name"] != p["name"]]
-                    save_settings(settings)
-                    refresh_playlists()
+                    confirm = messagebox.askyesno("Delete Playlist", f"Delete playlist '{p['name']}'?")
+                    if confirm:
+                        settings = load_settings()
+                        settings["Playlists"] = [pl for pl in settings.get("Playlists", []) if pl["name"] != p["name"]]
+                        save_settings(settings)
+                        refresh_playlists()
+
+                        # --- Delete associated imported playlist folder if it exists ---
+                        folder_path = os.path.join(IMPORTED_PLAYLISTS_DIR, p["name"])
+                        if os.path.exists(folder_path) and os.path.isdir(folder_path):
+                            try:
+                                shutil.rmtree(folder_path)
+                                print(f"Deleted folder: {folder_path}")
+                            except Exception as e:
+                                print(f"Failed to delete folder '{folder_path}': {e}")
 
             # Create button for the playlist
             playlist_btn = ctk.CTkButton(
                 scrollable_frame,
                 text=playlist_name,
-                font=("Arial", 14, "bold"),
+                font=("Arial", 16, "bold"),
                 command=on_left_click
             )
             playlist_btn.grid(row=0, column=col_index, padx=20, pady=(10, 0), sticky="n")
@@ -303,7 +427,6 @@ def open_playlist_window():
             # Bind right click to delete
             playlist_btn.bind("<Button-3>", on_right_click)
 
-            # Optionally list songs below the button
             for row_index, song_path in enumerate(playlist.get("songs", [])):
                 try:
                     audio = EasyID3(song_path)
@@ -311,12 +434,30 @@ def open_playlist_window():
                 except:
                     song_name = os.path.basename(song_path)
 
+                # Create a full-width frame per song row
+                song_frame = ctk.CTkFrame(scrollable_frame, fg_color="transparent")
+                song_frame.grid(row=row_index + 1, column=col_index, sticky="ew", padx=5, pady=2)
+
+                # Make sure the frame expands horizontally
+                song_frame.grid_columnconfigure(0, weight=1)
+
                 song_label = ctk.CTkLabel(
-                    scrollable_frame,
+                    song_frame,
                     text=f"{row_index+1}. {song_name}",
                     font=("Arial", 12)
                 )
-                song_label.grid(row=row_index + 1, column=col_index, padx=10, sticky="nw")
+                song_label.grid(row=0, column=0, sticky="w")  # Align left
+
+                song_play_button = ctk.CTkButton(
+                    song_frame,
+                    text=">",
+                    font=("Arial", 12),
+                    width=16,
+                    height=16,
+                    command=lambda index=row_index, pl=playlist: load_playlist(pl, index)
+                )
+                song_play_button.grid(row=0, column=1, sticky="e")
+
 
 
 
@@ -325,7 +466,7 @@ def open_playlist_window():
     entry_frame = ctk.CTkFrame(playlist_window)
     entry_frame.pack(fill="x", padx=10, pady=10)
 
-    new_playlist_entry = ctk.CTkEntry(entry_frame, placeholder_text="New playlist name...")
+    new_playlist_entry = ctk.CTkEntry(entry_frame, placeholder_text="New playlist name...", height=66)
     new_playlist_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
 
     def add_playlist():
@@ -360,15 +501,34 @@ def open_playlist_window():
         refresh_playlists()
         new_playlist_entry.delete(0, 'end')
 
-    add_button = ctk.CTkButton(entry_frame, text="Add", command=add_playlist)
-    add_button.pack(side="right")
+    def find_playlist_by_name(name):
+        for playlist in settings.get("Playlists", []):
+            if playlist["name"] == name:
+                return playlist
+        return None
 
-        
+
+    add_button = ctk.CTkButton(entry_frame, text="Add", command=add_playlist, width=56, height=66)
+    add_button.pack(side="left", padx=5, pady=5)
+
+
+    import_button = ctk.CTkButton(entry_frame, text="Import", command=import_playlist, width=40, height=28)
+    import_button.pack(side="bottom", padx=5, pady=5)
+
+    export_button = ctk.CTkButton(
+    entry_frame,
+    text="Export",
+    command=lambda: export_playlist(find_playlist_by_name(new_playlist_entry.get().strip())),
+    width=40, 
+    height=28
+    )
+    export_button.pack(side="right", padx=5, pady=5)
+     
     
     refresh_playlists()
 
 
-def load_playlist(playlist):
+def load_playlist(playlist, start_index=0):
     global current_file, playing, current_playlist_songs, current_playlist_index
     global current_pos, last_update_time
     global current_folder, folder_playlist, current_folder_index
@@ -378,12 +538,16 @@ def load_playlist(playlist):
         return
 
     current_playlist_songs = playlist["songs"]
-    current_playlist_index = 0
-    current_file = current_playlist_songs[0]
+    current_playlist_index = start_index
+    current_file = current_playlist_songs[start_index]
 
-    pygame.mixer.music.load(current_file)
-    pygame.mixer.music.play()
-    playing = True
+    try:
+        pygame.mixer.music.load(current_file)
+        pygame.mixer.music.play()
+        playing = True
+    except Exception as e:
+        print(f"Error loading song: {e}")
+        return
 
     current_pos = 0
     last_update_time = time.time()
@@ -398,7 +562,8 @@ def load_playlist(playlist):
     play_button.configure(text="Pause")
     update_playback_slider()
 
-    print(f"Loaded playlist: {playlist.get('name')}")
+    print(f"Loaded playlist: {playlist.get('name')} from index {start_index}")
+
 
 
 
@@ -805,7 +970,7 @@ cover_label.image = cover_art_image  # Prevent garbage collection
 #########################################################################
 
 # GUI Layout
-play_button.grid(row=0, column=1, padx=5, pady=(10,0), sticky="n")
+play_button.grid(row=0, column=0, columnspan=4, padx=5, pady=(10,0), sticky="n")
 load_button.grid(row=0, column=3, padx=10, pady=(10,0), sticky="nw")
 skip_button.grid(row=0, column=1, padx=2, pady=(10,0), sticky="nw")
 unskip_button.grid(row=0, column=0, padx=2, pady=(10,0), sticky="ne")
